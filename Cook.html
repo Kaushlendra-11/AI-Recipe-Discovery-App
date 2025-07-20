@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Recipe Discovery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .recipe-card ul, .recipe-card ol {
+            padding-left: 1.5rem;
+        }
+        .recipe-card ul li {
+            list-style-type: disc;
+        }
+        .recipe-card ol li {
+            list-style-type: decimal;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+
+    <div id="app-container" class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-800 dark:text-white">What's in your fridge?</h1>
+            <p class="text-lg text-gray-600 dark:text-gray-400 mt-2">Enter your ingredients and let AI create a recipe for you!</p>
+        </header>
+
+        <!-- Main Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- Left Column: Input and Generated Recipe -->
+            <div class="lg:col-span-2 space-y-8">
+                <!-- Ingredient Input -->
+                <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
+                    <form id="ingredient-form">
+                        <label for="ingredients" class="block text-xl font-semibold mb-2">Your Ingredients</label>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">Separate ingredients with commas (e.g., chicken breast, rice, broccoli, soy sauce).</p>
+                        <textarea id="ingredients" rows="3" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" placeholder="What do you have?"></textarea>
+                        <button type="submit" id="generate-btn" class="mt-4 w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 flex items-center justify-center disabled:bg-blue-400">
+                            <svg id="generate-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M9.5 2.5a2.5 2.5 0 0 1 5 0"/><path d="M6.23 5.73A8.5 8.5 0 0 1 20 12c0 3.5-2.12 6.5-5.12 7.88"/><path d="M6.23 18.27A8.5 8.5 0 0 1 4 12c0-3.5 2.12-6.5 5.12-7.88"/></svg>
+                            <svg id="loading-spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span id="generate-btn-text">Generate Recipe</span>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Generated Recipe Display -->
+                <div id="recipe-display" class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg min-h-[20rem] flex items-center justify-center">
+                    <p id="recipe-placeholder" class="text-gray-500 dark:text-gray-400">Your generated recipe will appear here...</p>
+                    <div id="recipe-content" class="hidden w-full"></div>
+                </div>
+            </div>
+
+            <!-- Right Column: Saved Recipes -->
+            <div class="lg:col-span-1">
+                <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg h-full">
+                    <h2 class="text-xl font-semibold mb-4">My Saved Recipes</h2>
+                    <div id="saved-recipes-list" class="space-y-4 overflow-y-auto max-h-[40rem]">
+                         <p id="saved-recipes-placeholder" class="text-gray-500 dark:text-gray-400">You haven't saved any recipes yet.</p>
+                        <!-- Saved recipes will be injected here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- User ID display -->
+         <footer class="text-center mt-8">
+            <div class="flex items-center justify-center space-x-3">
+                <span id="status-indicator" class="w-3 h-3 rounded-full bg-yellow-500" title="Connecting..."></span>
+                <span class="font-mono text-xs bg-gray-200 dark:bg-gray-800 p-2 rounded-md">ID: <span id="user-id" class="font-semibold">...</span></span>
+            </div>
+        </footer>
+    </div>
+
+    <script type="module">
+        // Firebase Imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase Configuration ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-recipe-app';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // --- DOM Elements ---
+        const ingredientForm = document.getElementById('ingredient-form');
+        const ingredientsInput = document.getElementById('ingredients');
+        const generateBtn = document.getElementById('generate-btn');
+        const generateBtnText = document.getElementById('generate-btn-text');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const recipeDisplay = document.getElementById('recipe-display');
+        const recipePlaceholder = document.getElementById('recipe-placeholder');
+        const recipeContent = document.getElementById('recipe-content');
+        const savedRecipesList = document.getElementById('saved-recipes-list');
+        const savedRecipesPlaceholder = document.getElementById('saved-recipes-placeholder');
+        const userIdEl = document.getElementById('user-id');
+        const statusIndicator = document.getElementById('status-indicator');
+
+        // --- App State ---
+        let db, auth, userId, isAuthReady = false;
+        let savedRecipesCollection;
+        let currentGeneratedRecipe = null;
+
+        // --- UI & State Management ---
+        const setStatus = (status) => {
+            switch (status) {
+                case 'connected':
+                    statusIndicator.className = 'w-3 h-3 rounded-full bg-green-500';
+                    statusIndicator.title = 'Connected';
+                    break;
+                case 'disconnected':
+                    statusIndicator.className = 'w-3 h-3 rounded-full bg-red-500';
+                    statusIndicator.title = 'Disconnected';
+                    break;
+                default:
+                    statusIndicator.className = 'w-3 h-3 rounded-full bg-yellow-500 animate-pulse';
+                    statusIndicator.title = 'Connecting...';
+                    break;
+            }
+        };
+
+        const setGeneratingState = (isGenerating) => {
+            generateBtn.disabled = isGenerating;
+            loadingSpinner.classList.toggle('hidden', !isGenerating);
+            generateBtnText.textContent = isGenerating ? 'Generating...' : 'Generate Recipe';
+        };
+
+        const displayRecipe = (recipe) => {
+            currentGeneratedRecipe = recipe;
+            recipePlaceholder.classList.add('hidden');
+            recipeContent.classList.remove('hidden');
+            
+            recipeContent.innerHTML = `
+                <div class="recipe-card prose dark:prose-invert max-w-none">
+                    <h2 class="text-2xl font-bold mb-4">${recipe.recipeName}</h2>
+                    <h3 class="font-semibold mt-4">Ingredients:</h3>
+                    <ul>
+                        ${recipe.ingredients.map(ing => `<li>${ing}</li>`).join('')}
+                    </ul>
+                    <h3 class="font-semibold mt-4">Instructions:</h3>
+                    <ol>
+                        ${recipe.instructions.map(step => `<li>${step}</li>`).join('')}
+                    </ol>
+                </div>
+                <button id="save-recipe-btn" class="mt-6 w-full bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition">Save This Recipe</button>
+            `;
+            
+            document.getElementById('save-recipe-btn').addEventListener('click', saveCurrentRecipe);
+        };
+        
+        const displayError = (message) => {
+            recipePlaceholder.classList.add('hidden');
+            recipeContent.classList.remove('hidden');
+            recipeContent.innerHTML = `<p class="text-red-500 text-center">${message}</p>`;
+        };
+
+        const renderSavedRecipes = (recipes) => {
+            savedRecipesList.innerHTML = '';
+            if (recipes.length === 0) {
+                savedRecipesList.appendChild(savedRecipesPlaceholder);
+                savedRecipesPlaceholder.classList.remove('hidden');
+            } else {
+                savedRecipesPlaceholder.classList.add('hidden');
+                recipes.forEach(recipe => {
+                    const recipeEl = document.createElement('div');
+                    recipeEl.className = 'bg-gray-200 dark:bg-gray-700 p-3 rounded-lg cursor-pointer hover:bg-gray-300 dark:hover:bg-gray-600';
+                    recipeEl.textContent = recipe.recipeName;
+                    recipeEl.addEventListener('click', () => displayRecipe(recipe));
+                    savedRecipesList.appendChild(recipeEl);
+                });
+            }
+        };
+
+        // --- API & Data Handlers ---
+        const handleGenerateSubmit = async (e) => {
+            e.preventDefault();
+            const ingredients = ingredientsInput.value.trim();
+            if (!ingredients) {
+                displayError("Please enter some ingredients.");
+                return;
+            }
+            
+            setGeneratingState(true);
+            recipePlaceholder.classList.remove('hidden');
+            recipeContent.classList.add('hidden');
+            recipePlaceholder.textContent = "AI is thinking...";
+
+            const prompt = `You are a creative chef. Generate a delicious recipe based on the following ingredients: ${ingredients}. The recipe should have a unique name. Your response must be in a valid JSON format, following this exact schema: {"recipeName": "string", "ingredients": ["string"], "instructions": ["string"]}. Do not include any text outside of the JSON object.`;
+
+            try {
+                const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+                const payload = { contents: chatHistory };
+                const apiKey = "";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                
+                if (result.candidates && result.candidates[0].content.parts[0].text) {
+                    const text = result.candidates[0].content.parts[0].text;
+                    // Clean the response to ensure it's valid JSON
+                    const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                    const recipe = JSON.parse(jsonString);
+                    displayRecipe(recipe);
+                } else {
+                    throw new Error("Failed to generate a recipe. The AI might be busy.");
+                }
+
+            } catch (error) {
+                console.error("Error generating recipe:", error);
+                displayError(`An error occurred: ${error.message}. Please try again.`);
+            } finally {
+                setGeneratingState(false);
+            }
+        };
+        
+        const saveCurrentRecipe = async () => {
+            if (!currentGeneratedRecipe || !isAuthReady) return;
+            try {
+                await addDoc(savedRecipesCollection, {
+                    ...currentGeneratedRecipe,
+                    author: userId,
+                    createdAt: new Date()
+                });
+                // Maybe show a success message
+                document.getElementById('save-recipe-btn').textContent = "Saved!";
+                document.getElementById('save-recipe-btn').disabled = true;
+            } catch (error) {
+                console.error("Error saving recipe:", error);
+            }
+        };
+
+        // --- Initialization ---
+        const initialize = async () => {
+            setStatus('connecting');
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+            } catch (e) {
+                console.error("Firebase initialization failed:", e);
+                setStatus('disconnected');
+                return;
+            }
+
+            onAuthStateChanged(auth, user => {
+                if (user) {
+                    userId = user.uid;
+                    isAuthReady = true;
+                    userIdEl.textContent = userId.substring(0, 8) + '...';
+                    setupFirestoreListeners();
+                    setStatus('connected');
+                } else {
+                    isAuthReady = false;
+                    setStatus('disconnected');
+                }
+            });
+
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Authentication failed:", error);
+            }
+
+            ingredientForm.addEventListener('submit', handleGenerateSubmit);
+        };
+
+        const setupFirestoreListeners = () => {
+            if (!isAuthReady) return;
+            savedRecipesCollection = collection(db, `/artifacts/${appId}/users/${userId}/saved-recipes`);
+            const q = query(savedRecipesCollection, orderBy('createdAt', 'desc'));
+
+            onSnapshot(q, (snapshot) => {
+                const recipes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderSavedRecipes(recipes);
+            }, err => console.error("Error fetching saved recipes:", err));
+        };
+
+        window.onload = initialize;
+    </script>
+</body>
+</html>
